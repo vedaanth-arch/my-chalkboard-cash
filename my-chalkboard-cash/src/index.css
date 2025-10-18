@@ -1,0 +1,105 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Fintech Design System: trustworthy, minimal, and friendly
+   Uses soft blues, greens, and light grays for a calm, premium feel.
+*/
+
+@layer base {
+  :root {
+  /* Base Backgrounds (requested: #F5F6F8) */
+  --background: 220 14% 97%; /* ≈ #F5F6F8 */
+  --foreground: 0 0% 20%; /* dark gray ≈ #333333 */
+
+  /* Cards & Popovers (requested: white) */
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 20%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 20%;
+
+    /* Primary: Teal #008080 */
+    --primary: 180 100% 25%; /* hsl(180,100%,25%) ≈ #008080 */
+    --primary-foreground: 0 0% 100%;
+
+    /* Secondary: Gray #808080 */
+  --secondary: 0 0% 50%; /* #808080 */
+  --secondary-foreground: 200 15% 15%; /* dark text for contrast */
+
+    /* Muted / Neutral */
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 40%;
+
+    /* Accent: Lemon Yellow #FFF44F */
+    --accent: 54 100% 65%; /* hsl(54,100%,65%) ≈ #FFF44F */
+    --accent-foreground: 200 15% 15%; /* dark text on lemon for contrast */
+
+    /* Destructive (Error Red) */
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    /* Borders, Inputs, Rings */
+    --border: 0 0% 90%;
+    --input: 0 0% 90%;
+    --ring: 180 100% 25%; /* teal ring */
+
+    /* Radii */
+    --radius: 0.75rem;
+
+    /* Expense & Income Colors */
+    --expense: 0 72% 51%;
+    --income: 180 70% 35%;
+
+    /* Chart Colors (teal/gray/yellow family) */
+    --chart-1: 180 100% 25%;
+    --chart-2: 0 0% 50%;
+    --chart-3: 54 100% 65%;
+    --chart-4: 200 10% 30%;
+
+    /* Gradient and Shadows */
+    --gradient-primary: linear-gradient(135deg, hsl(180 100% 25% / 0.12), hsl(54 100% 65% / 0.08));
+    --shadow-glow: 0 0 25px hsl(180 100% 25% / 0.15);
+
+    /* Sidebar */
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 200 15% 15%;
+    --sidebar-primary: 180 100% 25%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 0 0% 97%;
+    --sidebar-accent-foreground: 200 15% 15%;
+    --sidebar-border: 0 0% 90%;
+    --sidebar-ring: 180 100% 25%;
+  }
+
+  /* Dark mode - deep navy background */
+  .dark {
+    --background: 200 15% 8%;
+    --foreground: 0 0% 96%;
+    --card: 200 15% 10%;
+    --card-foreground: 0 0% 96%;
+    --primary: 180 100% 32%;
+  --secondary: 0 0% 55%;
+  --muted: 200 10% 16%;
+  --secondary-foreground: 0 0% 96%;
+    --accent: 54 100% 60%;
+    --border: 200 10% 22%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Utility color helpers bound to theme vars */
+@layer utilities {
+  .bg-expense { background-color: hsl(var(--expense)); }
+  .bg-income { background-color: hsl(var(--income)); }
+  .text-expense { color: hsl(var(--expense)); }
+  .text-income { color: hsl(var(--income)); }
+}
