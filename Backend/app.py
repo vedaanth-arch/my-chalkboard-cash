@@ -24,17 +24,55 @@ def read_balance():
             return float(df["Remaining Amount"].iloc[-1])
     return 10000.0  # default principal if CSV empty
 
-def update_expenses(total: float):
+def update_expenses(total: float, increment_count: int = 0):
+    """Append a snapshot with cumulative total; derive delta and timestamp.
+    Columns: Total Expenses, Principal Amount, Remaining Amount, Expense Count, Timestamp, Delta
+    """
+    cols = [
+        "Total Expenses",
+        "Principal Amount",
+        "Remaining Amount",
+        "Expense Count",
+        "Timestamp",
+        "Delta",
+    ]
+
     if os.path.exists(EXPENSES_FILE):
         df = pd.read_csv(EXPENSES_FILE)
     else:
-        df = pd.DataFrame(columns=["Total Expenses", "Principal Amount", "Remaining Amount"])
+        df = pd.DataFrame(columns=cols)
 
-    principal = df["Principal Amount"].iloc[-1] if not df.empty else 10000.0
+    # Ensure all columns exist
+    for c in cols:
+        if c not in df.columns:
+            df[c] = []
+
+    principal = (
+        float(df["Principal Amount"].iloc[-1]) if not df.empty and "Principal Amount" in df.columns else 10000.0
+    )
+    prev_total = float(df["Total Expenses"].iloc[-1]) if not df.empty else 0.0
+    prev_count = int(df["Expense Count"].iloc[-1]) if not df.empty else 0
+    new_count = prev_count + int(increment_count)
+
+    total = float(total)
+    delta = total - prev_total
     remaining = principal - total
-    df.loc[len(df)] = [total, principal, remaining]
+    ts = pd.Timestamp.now().date().isoformat()
+
+    row = {
+        "Total Expenses": total,
+        "Principal Amount": principal,
+        "Remaining Amount": remaining,
+        "Expense Count": new_count,
+        "Timestamp": ts,
+        "Delta": delta,
+    }
+
+    # Append row in the canonical column order
+    df = df.reindex(columns=cols, fill_value=None)
+    df.loc[len(df)] = [row[c] for c in cols]
     df.to_csv(EXPENSES_FILE, index=False)
-    return remaining
+    return remaining, new_count
 
 def random_month_expenses(month: int, year: int, seed: int = 42):
     rnd = random.Random(seed)
@@ -49,10 +87,9 @@ def random_month_expenses(month: int, year: int, seed: int = 42):
     return items
 
 def week_index(dt):
-    # ISO week within month
     first_of_month = pd.Timestamp(dt).replace(day=1)
-    offset = first_of_month.weekday()  # 0=Mon..6=Sun
-    return (pd.Timestamp(dt).day + offset - 1) // 7  # 0-based week index
+    offset = first_of_month.weekday()
+    return (pd.Timestamp(dt).day + offset - 1) // 7
 
 # ------------------- Routes -------------------
 
@@ -67,7 +104,6 @@ def ocr_receipt():
     except Exception as e:
         return jsonify({"error": f"Failed to read image: {e}"}), 400
 
-    # Extract total (basic)
     total = 0.0
     for line in text.split("\n"):
         if "total" in line.lower():
@@ -76,7 +112,25 @@ def ocr_receipt():
                     total = float(word)
                     break
 
-    remaining = update_expenses(total)
+    # Combine with existing cumulative total (only append when valid total found)
+    if total > 0 and os.path.exists(EXPENSES_FILE):
+        df = pd.read_csv(EXPENSES_FILE)
+        last_total = float(df["Total Expenses"].iloc[-1]) if not df.empty else 0.0
+    else:
+        last_total = 0.0
+
+    if total > 0:
+        new_total = last_total + total
+        remaining, count = update_expenses(new_total, increment_count=1)
+    else:
+        # No change; report current balance and count
+        if os.path.exists(EXPENSES_FILE):
+            df = pd.read_csv(EXPENSES_FILE)
+            count = int(df["Expense Count"].iloc[-1]) if (not df.empty and "Expense Count" in df.columns) else 0
+            remaining = float(df["Remaining Amount"].iloc[-1]) if not df.empty else read_balance()
+        else:
+            count = 0
+            remaining = read_balance()
 
     return jsonify({
         "text": text,
@@ -85,7 +139,9 @@ def ocr_receipt():
             "remaining": remaining,
             "date": None,
             "items": []
-        }
+        },
+        "balance": remaining,
+        "count": count
     })
 
 @app.route("/investments/recommend", methods=["GET"])
@@ -116,15 +172,32 @@ def get_balance():
 def weekly_totals():
     month = request.args.get("month", type=int) or pd.Timestamp.today().month
     year = request.args.get("year", type=int) or pd.Timestamp.today().year
-    items = random_month_expenses(month, year)
-    # Aggregate per week
-    week_buckets = {0: [0]*7, 1: [0]*7}  # two weeks, Mon-Sun
+
+    # Build using per-entry deltas grouped by day
+    week_buckets = {0: [0]*7, 1: [0]*7}
     days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-    for it in items:
-        w = week_index(it["date"])
-        if w in (0, 1):
-            weekday = pd.Timestamp(it["date"]).weekday()
-            week_buckets[w][weekday] += it["amount"]
+
+    if os.path.exists(EXPENSES_FILE):
+        df = pd.read_csv(EXPENSES_FILE)
+        if not df.empty and "Timestamp" in df.columns:
+            df["Timestamp"] = pd.to_datetime(df["Timestamp"], errors="coerce")
+            df = df.dropna(subset=["Timestamp"]) 
+            df = df[(df["Timestamp"].dt.month == month) & (df["Timestamp"].dt.year == year)]
+            # derive delta if missing
+            if "Delta" not in df.columns:
+                df = df.sort_values("Timestamp")
+                df["Delta"] = df["Total Expenses"].diff().fillna(df["Total Expenses"]).astype(float)
+            for _, row in df.iterrows():
+                d = row["Timestamp"].date().isoformat()
+                w = week_index(d)
+                if w in (0, 1):
+                    weekday = pd.Timestamp(d).weekday()
+                    try:
+                        amt = float(row.get("Delta", 0.0))
+                    except Exception:
+                        amt = 0.0
+                    week_buckets[w][weekday] += max(0.0, amt)
+
     week1 = [{"day": days[i], "expenses": round(week_buckets[0][i], 2)} for i in range(7)]
     week2 = [{"day": days[i], "expenses": round(week_buckets[1][i], 2)} for i in range(7)]
     comparison = [{"day": days[i], "week1": week1[i]["expenses"], "week2": week2[i]["expenses"]} for i in range(7)]
@@ -134,17 +207,76 @@ def weekly_totals():
 def calendar_month():
     month = request.args.get("month", type=int) or pd.Timestamp.today().month
     year = request.args.get("year", type=int) or pd.Timestamp.today().year
-    items = random_month_expenses(month, year)
     days_in_month = calendar.monthrange(year, month)[1]
-    per_day_expense = {d: 0.0 for d in range(1, days_in_month+1)}
-    for it in items:
-        day = pd.Timestamp(it["date"]).day
-        per_day_expense[day] += it["amount"]
+    per_day_expense = {d: 0.0 for d in range(1, days_in_month + 1)}
+
+    if os.path.exists(EXPENSES_FILE):
+        df = pd.read_csv(EXPENSES_FILE)
+        if not df.empty and "Timestamp" in df.columns:
+            df["Timestamp"] = pd.to_datetime(df["Timestamp"], errors="coerce")
+            df = df.dropna(subset=["Timestamp"]) 
+            df = df[(df["Timestamp"].dt.month == month) & (df["Timestamp"].dt.year == year)]
+            if "Delta" not in df.columns:
+                df = df.sort_values("Timestamp")
+                df["Delta"] = df["Total Expenses"].diff().fillna(df["Total Expenses"]).astype(float)
+            for _, row in df.iterrows():
+                day = int(row["Timestamp"].day)
+                try:
+                    amt = float(row.get("Delta", 0.0))
+                except Exception:
+                    amt = 0.0
+                if 1 <= day <= days_in_month:
+                    per_day_expense[day] += max(0.0, amt)
+
     return jsonify({
         "month": month,
         "year": year,
-        "days": [{"day": d, "expense": round(per_day_expense[d], 2), "income": 0.0} for d in range(1, days_in_month+1)]
+        "days": [{"day": d, "expense": round(per_day_expense[d], 2), "income": 0.0} for d in range(1, days_in_month + 1)]
     })
+
+# ------------------- Manual Expense Add -------------------
+@app.route("/expenses/add", methods=["POST"])
+def add_expense():
+    data = request.get_json(silent=True) or {}
+    try:
+        amount = float(data.get("amount", 0))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Invalid amount"}), 400
+
+    if amount <= 0:
+        return jsonify({"error": "Amount must be greater than 0"}), 400
+
+    # Determine last total expenses
+    if os.path.exists(EXPENSES_FILE):
+        df = pd.read_csv(EXPENSES_FILE)
+    else:
+        df = pd.DataFrame(columns=["Total Expenses", "Principal Amount", "Remaining Amount", "Expense Count"])
+
+    last_total = float(df["Total Expenses"].iloc[-1]) if not df.empty else 0.0
+    new_total = last_total + amount
+
+    remaining, count = update_expenses(new_total, increment_count=1)
+
+    return jsonify({
+        "total": new_total,
+        "balance": remaining,
+        "count": count,
+    })
+
+@app.route("/expenses/count", methods=["GET"])
+def get_expense_count():
+    if os.path.exists(EXPENSES_FILE):
+        df = pd.read_csv(EXPENSES_FILE)
+        if not df.empty:
+            count = int(df["Expense Count"].iloc[-1]) if "Expense Count" in df.columns else int(len(df))
+            return jsonify({"count": count})
+    return jsonify({"count": 0})
+
+# ------------------- ✅ NEW ROUTE for Total Balance -------------------
+@app.route("/api/total-balance", methods=["GET"])
+def total_balance_api():
+    balance = read_balance()
+    return jsonify({"balance": balance})
 
 # ------------------- Run -------------------
 if __name__ == "__main__":

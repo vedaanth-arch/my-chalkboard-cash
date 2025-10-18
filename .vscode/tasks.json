@@ -15,6 +15,23 @@
 			"problemMatcher": [
 				"$eslint-stylish"
 			]
+		},
+		{
+			"label": "Start FastAPI dev server",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-Command",
+				"cd 'c:\\Users\\vedaa\\Documents\\Complete shit\\Backend'; if (!(Test-Path .venv)) { python -m venv .venv }; . .venv\\Scripts\\Activate.ps1; pip install -r requirements.txt; uvicorn main:app --reload --port 8000"
+			],
+			"isBackground": true,
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
 		}
 	]
 }
