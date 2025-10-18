@@ -12,8 +12,9 @@ services:
       - key: FLASK_ENV
         value: production
 
-  - type: static_site
+  - type: web
     name: frontend
+    env: static
     rootDir: my-chalkboard-cash
     buildCommand: npm ci && npm run build
     staticPublishPath: dist
